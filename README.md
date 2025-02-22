@@ -76,29 +76,71 @@ This binary generates Snowflake IDs.
 
 ### `snowflake_decoder`
 
-This binary decodes Snowflake IDs.
+This binary decodes Snowflake IDs. It can operate in two modes: as a service via HTTP requests or directly from the command line.
 
-**Usage:**
+**Usage (Command Line):**
 
+```bash
+./target/release/snowflake_decoder --decode <snowflake_id> [epoch]
 ```
-./target/release/snowflake_decoder <snowflake_id> [epoch]
-```
 
+* `--decode`: Specifies that the decoder should run in command-line mode.
 * `<snowflake_id>`: The Snowflake ID to decode.
 * `[epoch]` (Optional): The epoch used to generate the Snowflake ID. Defaults to `1672531200000`.
 
-**Examples:**
+**Examples (Command Line):**
 
 * Decode a Snowflake ID with a custom epoch:
 
-    ```
-    ./target/release/snowflake_decoder 17565551988224 1678848000000
+    ```bash
+    ./target/release/snowflake_decoder --decode 17565551988224 1678848000000
     ```
 
 * Decode a Snowflake ID with the default epoch:
 
+    ```bash
+    ./target/release/snowflake_decoder --decode 17565551988224
     ```
-    ./target/release/snowflake_decoder 17565551988224
+
+**Usage (Service via HTTP):**
+
+```bash
+./target/release/snowflake_decoder [epoch] [port]
+```
+
+* `[epoch]` (Optional): The epoch in milliseconds since the Unix epoch. Defaults to `1672531200000`.
+* `[port]` (Optional): The port to listen on. Defaults to `8081`.
+
+**Examples (Service):**
+
+* Run as a service on port 3000 with a custom epoch:
+
+    ```
+    ./target/release/snowflake_decoder 1678848000000 3000
+    ```
+
+* Run as a service with the default epoch:
+
+    ```
+    ./target/release/snowflake_decoder
+    ```
+
+**HTTP Requests:**
+
+* Send `GET` requests to `/` with the `id` query parameter:
+
+    ```
+    http://localhost:8081/?id=<snowflake_id>
+    ```
+
+    * Replace `<snowflake_id>` with the Snowflake ID you want to decode.
+
+* The service will respond with a JSON object containing the decoded Snowflake ID information.
+
+* Example using curl:
+
+    ```
+    curl "http://localhost:8081/?id=17565551988224"
     ```
 
 ## Cargo Workspace
@@ -108,6 +150,8 @@ This project is organized as a Cargo workspace, allowing you to build both binar
 ## Dependencies
 
 * `local-ip-address`: Used by `snowflake_generator` to derive a worker ID from the local IP address.
+* `chrono`: Used by `snowflake_decoder` for date and time formatting.
+* `serde_json`: Used by `snowflake_decoder` for JSON serialization and deserialization.
 
 ## Notes
 
