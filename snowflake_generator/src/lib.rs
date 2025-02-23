@@ -1,9 +1,11 @@
+use std::env;
 use std::net::{IpAddr};
 use std::sync::{Mutex, OnceLock};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // Configuration
+const WORKER_ID_ENV_VAR: &str = "SNOWFLAKE_WORKER_ID";
 const WORKER_ID_BITS: u64 = 10;
 const SEQUENCE_BITS: u64 = 12;
 const MAX_SEQUENCE: u64 = (1 << SEQUENCE_BITS) - 1;
@@ -20,6 +22,14 @@ pub fn get_worker_id() -> (u64, Option<IpAddr>) {
 }
 
 fn get_worker_id_once() -> (u64, Option<IpAddr>) {
+    if let Ok(worker_id_str) = env::var(WORKER_ID_ENV_VAR) {
+        if let Ok(worker_id) = worker_id_str.parse::<u64>() {
+            return (worker_id & ((1 << WORKER_ID_BITS) - 1), None);
+        } else {
+            eprintln!("Error parsing {} environment variable. Falling back to IP address.", WORKER_ID_ENV_VAR);
+        }
+    }
+
     match local_ip_address::local_ip() {
         Ok(ip) => {
             match ip {
