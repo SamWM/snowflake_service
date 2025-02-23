@@ -1,19 +1,27 @@
 use std::net::{IpAddr};
-use std::sync::{Mutex};
-use std::sync::atomic::AtomicU64;
+use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{env, io};
 use std::io::{Read, Write};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // Configuration
 const WORKER_ID_BITS: u64 = 10;
 const SEQUENCE_BITS: u64 = 12;
+const MAX_SEQUENCE: u64 = (1 << SEQUENCE_BITS) - 1;
 const DEFAULT_EPOCH: u64 = 1672531200000;
 
 // Shared state
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static LAST_TIMESTAMP: Mutex<u64> = Mutex::new(0);
 
+static WORKER_ID_CACHE: OnceLock<(u64, Option<IpAddr>)> = OnceLock::new();
+
 fn get_worker_id() -> (u64, Option<IpAddr>) {
+    *WORKER_ID_CACHE.get_or_init(get_worker_id_once)
+}
+
+fn get_worker_id_once() -> (u64, Option<IpAddr>) {
     match local_ip_address::local_ip() {
         Ok(ip) => {
             match ip {
@@ -35,41 +43,40 @@ fn get_worker_id() -> (u64, Option<IpAddr>) {
 }
 
 fn generate_snowflake(epoch: u64) -> u64 {
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
-
-    let worker_id = get_worker_id().0;
-
-    let mut last_timestamp = LAST_TIMESTAMP.lock().unwrap();
-
-    if timestamp < *last_timestamp {
-        panic!("Clock moved backwards");
-    }
-
-    let sequence = if timestamp == *last_timestamp {
-        SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::SeqCst) & ((1 << SEQUENCE_BITS) - 1)
-    } else {
-        SEQUENCE.store(0, std::sync::atomic::Ordering::SeqCst);
-        0
-    };
-
-    *last_timestamp = timestamp;
-
-    if sequence == 0 && timestamp == *last_timestamp + 1 {
-        while std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+    loop {
+        let mut last_timestamp_guard = LAST_TIMESTAMP.lock().unwrap();
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_millis() as u64
-            <= *last_timestamp
-        {}
-        return generate_snowflake(epoch);
-    }
+            .as_millis() as u64;
 
-    (timestamp - epoch) << (WORKER_ID_BITS + SEQUENCE_BITS)
-        | (worker_id << SEQUENCE_BITS)
-        | sequence
+        if timestamp < *last_timestamp_guard {
+            panic!("Clock moved backwards");
+        }
+
+        if timestamp != *last_timestamp_guard {
+            *last_timestamp_guard = timestamp;
+            SEQUENCE.store(0, Ordering::SeqCst);
+        }
+
+        let sequence = SEQUENCE.load(Ordering::SeqCst);
+        if sequence > MAX_SEQUENCE {
+            let saved_timestamp = timestamp;
+            drop(last_timestamp_guard);
+            while SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64 == saved_timestamp {}
+            continue;
+        }
+
+        let next_sequence = SEQUENCE.fetch_add(1, Ordering::SeqCst);
+
+        if next_sequence > MAX_SEQUENCE {
+          continue;
+        }
+
+        return (timestamp - epoch) << (WORKER_ID_BITS + SEQUENCE_BITS)
+            | (get_worker_id().0 << SEQUENCE_BITS)
+            | next_sequence;
+    }
 }
 
 fn handle_connection(mut stream: std::net::TcpStream, epoch: u64) -> io::Result<()> {
