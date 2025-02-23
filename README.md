@@ -36,6 +36,13 @@ Before building and running the project, ensure you have the following tools ins
 
 This binary generates Snowflake IDs.
 
+**Worker ID Configuration:**
+
+The `snowflake_generator` can obtain the worker ID in two ways:
+
+* **Environment Variable:** If the `SNOWFLAKE_WORKER_ID` environment variable is set to a valid numeric value, the generator will use that value as the worker ID. This allows for consistent worker IDs across different environments, and avoids reliance on ip addresses.
+* **Local IP Address (Fallback):** If the environment variable is not set, the generator will derive the worker ID from the local IP address.
+
 **Usage:**
 
 ```bash
